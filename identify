@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+
+import argparse
+import re
+from subprocess import check_output
+from pathlib import Path
+from typing import List
+
+def identify(path: Path) -> List[str]:
+    strings = check_output(f"strings {path}", shell=True).decode().split("\n")
+    # 1. lets see if we can find a clean semver version #.#, #.#.# and #.#.#.#
+    version_candidates = filter(lambda s: re.match(r"^\d+\.\d+$|^\d+\.\d+\.\d+$|^\d+\.\d+\.\d+\.\d+$", s), strings)
+    # identifies my python3 as having one of versions ['3.12.3', '255.255.255.255', '15.0.0', '3.2.0', '2047.984375']
+    # consider versions such as 1.2.3b and 1.2.3-rc1 etc
+    print(list(version_candidates))
+    return []
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        prog='identify',
+        description='Attempt to generate potentially matching such as identifiers cpes and purls based on file contents',
+        epilog=(
+            "examples to try:"
+            "- python"
+            "- python3"
+            "- bash"
+            "- perl"
+            "- wget"
+            "- curl"
+        )
+    )
+    parser.add_argument(
+        'paths',
+        type=lambda p: Path(p).absolute(),
+        nargs='+'
+    )
+    args = parser.parse_args()
+    for path in args.paths:
+        for identifier in identify(path):
+            print(identifier)
