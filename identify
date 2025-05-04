@@ -11,7 +11,10 @@ from typing import List
 # TODO Consider running executable binary in a jail with --version as a means of identification
 
 def identify(path: Path) -> List[str]:
-    strings = check_output(f"strings {path}", shell=True).decode().split("\n")
+    try:
+        strings = check_output(f"strings {path}", shell=True).decode().split("\n")
+    except:
+        return []
     # 1. lets see if we can find a clean semver version #.#, #.#.# and #.#.#.#
     version_candidates = list(filter(lambda s: re.match(r"^\d+\.\d+$|^\d+\.\d+\.\d+$|^\d+\.\d+\.\d+\.\d+$|^\d+\.\d+\.\d+-[0-9a-z.]+$", s), strings))
     version_candidates.extend(
@@ -25,7 +28,7 @@ def identify(path: Path) -> List[str]:
     name_candidates = [s.split(" ")[0].lower() for s in filter(lambda s: re.match(r"^\w+ %s$", s), strings)]
     name_candidates.extend([
         path.name,
-        re.split(r"[0-9-]", path.name)[0],
+        re.split(r"[0-9-._]", path.name)[0],
     ])
     for s in strings:
         if re.match(r"^\w+ \d+\.\d+\.\d+.* ", s):
@@ -49,8 +52,7 @@ def identify(path: Path) -> List[str]:
         and not s.startswith("_")
     ), name_candidates))    
     if name_candidates and version_candidates:
-        print(version_candidates)
-        print(name_candidates)
+        print(f"{str(path)}: {", ".join(name_candidates)} - {", ".join(version_candidates)}")
     return []
 
 if __name__ == '__main__':
