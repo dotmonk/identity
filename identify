@@ -6,6 +6,10 @@ from subprocess import check_output
 from pathlib import Path
 from typing import List
 
+# TODO Add test system using debians top N installed packages. Unpack and attempt to get 100% correct output
+# TODO Consider npm binaries, python apps and similar
+# TODO Consider running executable binary in a jail with --version as a means of identification
+
 def identify(path: Path) -> List[str]:
     strings = check_output(f"strings {path}", shell=True).decode().split("\n")
     # 1. lets see if we can find a clean semver version #.#, #.#.# and #.#.#.#
