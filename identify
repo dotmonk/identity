@@ -21,11 +21,32 @@ def identify(path: Path) -> List[str]:
     name_candidates = [s.split(" ")[0].lower() for s in filter(lambda s: re.match(r"^\w+ %s$", s), strings)]
     name_candidates.extend([
         path.name,
-        re.split(r"\d", path.name)[0],
+        re.split(r"[0-9-]", path.name)[0],
     ])
-    # TODO select top candidates first, filter out empty strings, match against actual identifiers
-    print(version_candidates)
-    print(name_candidates)
+    for s in strings:
+        if re.match(r"^\w+ \d+\.\d+\.\d+.* ", s):
+            parts = s.split(" ")[:2]
+            name_candidates.extend([parts[0].lower()])
+            version_candidates.extend([parts[1]])
+    # TODO select top candidates first
+    # TODO match against actual identifiers
+    # TODO prefer non "*.*" names. Eg. libreoffice instead of libLanguageToollo.so
+    # TODO reconsider ignoring directories
+    version_candidates = list(filter(lambda s: (
+        s
+        and s != "255.255.255.255"
+        and s != "0.0.0.0"
+        and not s.startswith("127.0.0.")
+        and not s.startswith("192.168.")
+        and not s.startswith("802.")
+    ), version_candidates))
+    name_candidates = list(filter(lambda s: (
+        s
+        and not s.startswith("_")
+    ), name_candidates))    
+    if name_candidates and version_candidates:
+        print(version_candidates)
+        print(name_candidates)
     return []
 
 if __name__ == '__main__':
@@ -41,7 +62,7 @@ if __name__ == '__main__':
             "- wget OK"
             "- curl OK"
             "- 7z (/usr/lib/7zip/7z) OK"
-            "- libreoffice (TODO)"
+            "- libreoffice (/usr/lib/libreoffice/program/libLanguageToollo.so) OK"
         )
     )
     parser.add_argument(
@@ -50,6 +71,15 @@ if __name__ == '__main__':
         nargs='+'
     )
     args = parser.parse_args()
-    for path in args.paths:
-        for identifier in identify(path):
-            print(identifier)
+    paths:List[Path] = args.paths
+    # TODO Maybe only consider files that are executable or binary?
+    for path in paths:
+        if path.is_dir():
+            subfiles = path.rglob("**/*")
+            for subfile in subfiles:
+                if subfile.is_file():
+                    for identifier in identify(subfile):
+                        print(identifier)
+        else:
+            for identifier in identify(path):
+                print(identifier)
