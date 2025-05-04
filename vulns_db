@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+
+import sqlite3
+from shutil import rmtree
+from pathlib import Path
+
+root = Path(__file__) / "vulns"
+vulns_path = root / "vulns.db"
+vulns_db = None
+cve_path = root / "cve"
+cve_git_url = "https://github.com/CVEProject/cvelistV5.git"
+osv_path = root / "osv"
+osv_ecosystems_url = "https://osv-vulnerabilities.storage.googleapis.com/ecosystems.txt"
+# https://osv-vulnerabilities.storage.googleapis.com/{ecosystem}/all.zip
+
+def setup():
+    if not root.exists():
+        root.mkdir(parents=True, exist_ok=True)
+    # remove old data # TODO Replace with better solution later
+    if vulns_path.exists():
+        rmtree(vulns_path, ignore_errors=True)
+    if cve_path.exists():
+        rmtree(cve_path, ignore_errors=True)
+    if osv_path.exists():
+        rmtree(osv_path, ignore_errors=True)
+
+def init():
+    # DB
+    vulns_db = sqlite3.connect(vulns_path)
+    cur = vulns_db.cursor()
+    cur.execute("CREATE TABLE vulns(type, vendor, product, lt, lte, eq, gt, gte, vulnerability)")
+    cur.close()
+    # nvd
+    # osv
+
+if __name__ == '__main__':
+    setup()
+    init()
+
