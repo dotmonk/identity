@@ -9,24 +9,39 @@ from typing import List
 def identify(path: Path) -> List[str]:
     strings = check_output(f"strings {path}", shell=True).decode().split("\n")
     # 1. lets see if we can find a clean semver version #.#, #.#.# and #.#.#.#
-    version_candidates = filter(lambda s: re.match(r"^\d+\.\d+$|^\d+\.\d+\.\d+$|^\d+\.\d+\.\d+\.\d+$", s), strings)
+    version_candidates = list(filter(lambda s: re.match(r"^\d+\.\d+$|^\d+\.\d+\.\d+$|^\d+\.\d+\.\d+\.\d+$|^\d+\.\d+\.\d+-[0-9a-z.]+$", s), strings))
+    version_candidates.extend(
+        [s.split(" version ", maxsplit=2)[1].split(" ")[0] for s in filter(lambda s: re.match(r".+ version \d+\.\d+\..+ ", s), strings)]
+    )
+    version_candidates.extend(
+        [s[1:] for s in filter(lambda s: re.match(r"^v\d+\.\d+\.\d+$", s), strings)]
+    )
     # identifies my python3 as having one of versions ['3.12.3', '255.255.255.255', '15.0.0', '3.2.0', '2047.984375']
-    # consider versions such as 1.2.3b and 1.2.3-rc1 etc
-    print(list(version_candidates))
+    # TODO consider versions such as 1.2.3b, 1.2.3-32, 1.2.3-alpha, 1.2.3-rc7 and 5.2.21(1)-release etc
+    name_candidates = [s.split(" ")[0].lower() for s in filter(lambda s: re.match(r"^\w+ %s$", s), strings)]
+    name_candidates.extend([
+        path.name,
+        re.split(r"\d", path.name)[0],
+    ])
+    # TODO select top candidates first, filter out empty strings, match against actual identifiers
+    print(version_candidates)
+    print(name_candidates)
     return []
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         prog='identify',
-        description='Attempt to generate potentially matching such as identifiers cpes and purls based on file contents',
+        description='Attempt to generate potentially matching identifiers such as cpes and purls based on file contents',
         epilog=(
             "examples to try:"
-            "- python"
-            "- python3"
-            "- bash"
-            "- perl"
-            "- wget"
-            "- curl"
+            "- python OK"
+            "- python3 OK"
+            "- bash OK"
+            "- perl OK"
+            "- wget OK"
+            "- curl OK"
+            "- 7z (/usr/lib/7zip/7z) OK"
+            "- libreoffice (TODO)"
         )
     )
     parser.add_argument(
