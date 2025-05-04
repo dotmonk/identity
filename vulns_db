@@ -3,26 +3,22 @@
 import sqlite3
 from shutil import rmtree
 from pathlib import Path
+from urllib import request, parse
+from subprocess import check_call
 
-root = Path(__file__) / "vulns"
+root = Path(__file__).parent / "vulns"
 vulns_path = root / "vulns.db"
 vulns_db = None
 cve_path = root / "cve"
 cve_git_url = "https://github.com/CVEProject/cvelistV5.git"
 osv_path = root / "osv"
-osv_ecosystems_url = "https://osv-vulnerabilities.storage.googleapis.com/ecosystems.txt"
-# https://osv-vulnerabilities.storage.googleapis.com/{ecosystem}/all.zip
+osv_url = "https://osv-vulnerabilities.storage.googleapis.com/all.zip"
 
 def setup():
-    if not root.exists():
-        root.mkdir(parents=True, exist_ok=True)
+    if root.exists():
+        rmtree(root)
+    osv_path.mkdir(parents=True)
     # remove old data # TODO Replace with better solution later
-    if vulns_path.exists():
-        rmtree(vulns_path, ignore_errors=True)
-    if cve_path.exists():
-        rmtree(cve_path, ignore_errors=True)
-    if osv_path.exists():
-        rmtree(osv_path, ignore_errors=True)
 
 def init():
     # DB
@@ -30,8 +26,11 @@ def init():
     cur = vulns_db.cursor()
     cur.execute("CREATE TABLE vulns(type, vendor, product, lt, lte, eq, gt, gte, vulnerability)")
     cur.close()
-    # nvd
     # osv
+    request.urlretrieve(osv_url, osv_path / "all.zip")
+    check_call(f"cd {osv_path} && unzip -x all.zip", shell=True)
+    # nvd
+    check_call(f"cd {root} && git clone --depth 1 --single-branch {cve_git_url} cve", shell=True)
 
 if __name__ == '__main__':
     setup()
