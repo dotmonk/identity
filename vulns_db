@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import sqlite3
+import json
 from shutil import rmtree
 from pathlib import Path
 from urllib import request, parse
@@ -14,25 +15,65 @@ cve_git_url = "https://github.com/CVEProject/cvelistV5.git"
 osv_path = root / "osv"
 osv_url = "https://osv-vulnerabilities.storage.googleapis.com/all.zip"
 
-def setup():
+def remove_all():
+    # remove old data # TODO Replace with better solution later
     if root.exists():
         rmtree(root)
     osv_path.mkdir(parents=True)
-    # remove old data # TODO Replace with better solution later
 
-def init():
-    # DB
-    vulns_db = sqlite3.connect(vulns_path)
-    cur = vulns_db.cursor()
-    cur.execute("CREATE TABLE vulns(type, vendor, product, lt, lte, eq, gt, gte, vulnerability)")
-    cur.close()
+def fetch_data():
     # osv
     request.urlretrieve(osv_url, osv_path / "all.zip")
     check_call(f"cd {osv_path} && unzip -x all.zip", shell=True)
     # nvd
     check_call(f"cd {root} && git clone --depth 1 --single-branch {cve_git_url} cve", shell=True)
 
+def init_db():
+    # DB
+    global vulns_db
+    vulns_db = sqlite3.connect(vulns_path)
+
+def create_db():
+    cur = vulns_db.cursor()
+    cur.execute("DROP TABLE vulns")
+    cur.execute("CREATE TABLE vulns(type, vendor, product, lt, lte, eq, gt, gte, vulnerability)")
+    for opath in osv_path.glob("*.json"):
+        vul = json.loads(opath.read_text())
+        if "affected" in vul:
+            vulnerability = vul["id"]
+            for affected in vul["affected"]:
+                if "package" in affected:
+                    if "purl" in affected["package"]:
+                        #print(affected["package"]["purl"])
+                        pass
+                    elif "name" in affected["package"] and "ecosystem" in affected["package"]:
+                        #print(f"pkg:{affected["package"]["ecosystem"]}/{affected["package"]["name"]}")
+                        pass
+                    if "versions" in affected and affected["versions"]:
+                        #print(affected["versions"])
+                        pass
+                    elif "ranges" in affected and affected["ranges"]:
+                        #print(affected["ranges"])
+                        for range in affected["ranges"]:
+                            type = range["type"] 
+                            if type == "ECOSYSTEM":
+                                pass
+                            elif type == "SEMVER":
+                                pass
+                            elif type == "GIT":
+                                pass
+                            else:
+                                print(range["type"])
+                                pass
+                    else:
+                        #match all
+                        pass
+    cur.close()
+
 if __name__ == '__main__':
-    setup()
-    init()
+    # remove_all()
+    # fetch_data()
+    init_db()
+    # TODO We can update from last run by looking at id and withdrawn
+    create_db()
 
