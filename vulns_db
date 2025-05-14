@@ -2,10 +2,12 @@
 
 import sqlite3
 import json
+import re
 from shutil import rmtree
 from pathlib import Path
-from urllib import request, parse
+from urllib import request
 from subprocess import check_call
+from typing import Optional
 
 root = Path(__file__).parent / "vulns"
 vulns_path = root / "vulns.db"
@@ -33,38 +35,158 @@ def init_db():
     global vulns_db
     vulns_db = sqlite3.connect(vulns_path)
 
+def normalize_version(version: str) -> Optional[str]:
+    """
+    TODO: Fix crap code, let's just pretend the whole world is simple semver for now
+    """
+    if version == "0":
+        return None
+    if ":" in version:
+        version = version.split(":")[1]
+    if "+" in version:
+        version = version.split("+")[0]
+    if re.match(r"^.+\-\d+\.\d+\.\d+\-.+", version) or re.match(r"^.+\-\d+\.\d+\.\d+\.\d+\-.+", version):
+        version = version.split("-")[1]
+    version = re.sub(r'-|~|_', '.', version)
+    parts = [re.sub(r'[^0-9]+', '', part.lower()) for part in version.split(".")]
+    parts = [part for part in parts if part]
+    while(len(parts) < 3):
+        parts.append("0")
+    parts = parts[0:3]
+    return ".".join(str(int(part)) for part in parts)
+
+# Runtime testing, Yay!
+for test_case, expected in {
+    "0": None,
+    "6.11.0-1004.4": "6.11.0",
+    "0.8-r1": "0.8.1",
+    "0.5": "0.5.0",
+    "2.0.0": "2.0.0",
+    "6.8.0-38.38~22.04.1": "6.8.0",
+    "0:7.76.1-29.el9_4.1": "7.76.1",
+    "0:17-3.module+el8+2873+aa7dfd9a": "17.3.0",
+    "0:4.4.0-8.el9_2.1": "4.4.0",
+    "2.8.7.5-3.10.3": "2.8.7",
+    "7u151-2.6.11-2ubuntu0.14.04.1": "2.6.11",
+}.items():
+    actual = normalize_version(test_case)
+    if actual != expected:
+        raise Exception(f"Invalid normalize_version function. Test case \"{test_case}\" expected \"{expected}\" actual \"{actual}\"")
+
+# TODO I think there is a briefer way to do this in python
+class ParsedPurl:
+    vendor: str
+    application: str
+    version: Optional[str]
+
+    def __init__(self, vendor:str, application:str, version:Optional[str] = None):
+        self.vendor = vendor
+        self.application = application
+        self.version = version
+
+    def __eq__(self, other):
+        return (
+            self.vendor == other.vendor and
+            self.application == other.application and
+            self.version == other.version
+        )
+
+def parse_purl(purl:str) -> ParsedPurl:
+    parsed = ParsedPurl("","")
+    purl = purl.lower()
+    if not purl.startswith("pkg:"):
+        raise Exception(f"Purl parse error. Unparsable purl was: {purl}")
+    wip = purl[4:]
+    wip = wip.split("&")[0]
+    wip = wip.split("?")[0]
+    if "@" in wip:
+        parts = wip.split("@")
+        wip = parts[0]
+        parsed.version = normalize_version(parts[1])
+    parts = wip.split("/")
+    parsed.application = parts[-1]
+    parsed.vendor = parts[-2]
+    return parsed
+
+# Runtime testing, Yay!
+for test_case, expected in {
+    "pkg:deb/ubuntu/openjdk-7@7u151-2.6.11-2ubuntu0.14.04.1?arch=source&distro=trusty": ParsedPurl("ubuntu", "openjdk-7", "2.6.11"),
+    "pkg:deb/ubuntu/chromium-browser@49.0.2623.87-0ubuntu0.14.04.1.1112?arch=source&distro=trusty": ParsedPurl("ubuntu", "chromium-browser", "49.0.2623"),
+    "pkg:cargo/stack_dstSV": ParsedPurl("cargo", "stack_dstsv"),
+    "pkg:apk/chainguard/keda-fipsnts": ParsedPurl("chainguard", "keda-fipsnts"),
+    "pkg:golang/github.com/jub0bs/fcorsrogress": ParsedPurl("jub0bs","fcorsrogress"),
+    "pkg:deb/ubuntu/gpac@2.2.1+dfsg1-3.1build2?arch=source&distro=noble": ParsedPurl("ubuntu", "gpac", "2.2.1"),
+    "pkg:composer/phpoffice/phpspreadsheet": ParsedPurl("phpoffice", "phpspreadsheet"),
+}.items():
+    actual = parse_purl(test_case)
+    if actual != expected:
+        raise Exception(
+            f"Invalid parse_purl function. Test case \"{test_case}\" failed. "
+            f"Application: {actual.application} == {expected.application} "
+            f"Vendor: {actual.vendor} == {expected.vendor} "
+            f"Version: {actual.version} == {expected.version} "
+        )
+
 def create_db():
     cur = vulns_db.cursor()
-    cur.execute("DROP TABLE vulns")
+    cur.execute("DROP TABLE IF EXISTS aliases")
+    cur.execute("CREATE TABLE aliases(id, alias)")
+
+    cur.execute("DROP TABLE IF EXISTS vulns")
     cur.execute("CREATE TABLE vulns(type, vendor, product, lt, lte, eq, gt, gte, vulnerability)")
-    for opath in osv_path.glob("*.json"):
-        vul = json.loads(opath.read_text())
+    osv_json_paths = list(osv_path.glob("*.json"))
+    osv_json_paths_count = len(osv_json_paths)
+    for osv_json_path_index in range(osv_json_paths_count):
+        osv_json_path = osv_json_paths[osv_json_path_index]
+        percent = round(1000 * osv_json_path_index / osv_json_paths_count) / 10
+        print(f'\rProcessing {osv_json_paths_count} OSV documents. Progress : {percent}%', end = "\r")
+        vul = json.loads(osv_json_path.read_text())
         if "affected" in vul:
-            vulnerability = vul["id"]
+            vulnerability_ids = [vul["id"]]
+            vulnerability_ids.extend(vul["aliases"] if "aliases" in vul else [])
             for affected in vul["affected"]:
                 if "package" in affected:
+                    purl = None
                     if "purl" in affected["package"]:
-                        #print(affected["package"]["purl"])
-                        pass
+                        purl = parse_purl(affected["package"]["purl"])
                     elif "name" in affected["package"] and "ecosystem" in affected["package"]:
-                        #print(f"pkg:{affected["package"]["ecosystem"]}/{affected["package"]["name"]}")
-                        pass
+                        vendor = affected["package"]["ecosystem"].split(":")[0].lower()
+                        application = re.sub(
+                            r"\d+",
+                            "",
+                            affected["package"]["name"].lower()
+                        )
+                        purl = ParsedPurl(vendor, application)
                     if "versions" in affected and affected["versions"]:
-                        #print(affected["versions"])
-                        pass
+                        for version in affected["versions"]:
+                            eq = normalize_version(version)
+                            for vulnerability_id in vulnerability_ids:
+                                # TODO insert one line per id
+                                pass
                     elif "ranges" in affected and affected["ranges"]:
                         #print(affected["ranges"])
-                        for range in affected["ranges"]:
-                            type = range["type"] 
-                            if type == "ECOSYSTEM":
-                                pass
-                            elif type == "SEMVER":
-                                pass
+                        for r in affected["ranges"]:
+                            lt = None
+                            lte = None
+                            gte = None
+                            type = r["type"] 
+                            if type == "ECOSYSTEM" or type == "SEMVER":
+                                for event in r['events']:
+                                    if "introduced" in event:
+                                        gte = normalize_version(event["introduced"])
+                                    elif "fixed" in event:
+                                        lt = normalize_version(event["fixed"])
+                                    elif "last_affected" in event:
+                                        lte = normalize_version(event["last_affected"])
+                                    else:
+                                        raise Exception(f"I've found a unicorn (Looking for gt)! {event.keys()}")
                             elif type == "GIT":
+                                # TODO Reconsider checking out git repos and sorting out all of the commits for the events matching
                                 pass
-                            else:
-                                print(range["type"])
+                            for vulnerability_id in vulnerability_ids:
+                                # TODO insert one line per id
                                 pass
+
                     else:
                         #match all
                         pass
